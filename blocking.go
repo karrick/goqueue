@@ -1,0 +1,87 @@
+package goqueue
+
+import (
+	"sync"
+	"sync/atomic"
+)
+
+// Blocking is a multi-reader, multi-writer, first-in-first-out (FIFO) data
+// structure that allows insertion and removal of values safely by multiple
+// goroutines. The structure is named "Blocking" because the dequeue operation
+// will block until a datum is available when the queue is empty.
+//
+// This implementation is implemented using a lock-free singly-linked list. It
+// enqueues by appending a new value to the tail and dequeues by removing the
+// value pointed to by the head.
+//
+//    func ExampleQueue() {
+//        const oneMillion = 1000000
+//
+//        values := rand.Perm(oneMillion)
+//        q := goqueue.NewBlocking()
+//
+//        for _, v := range values {
+//            q.Enqueue(v)
+//        }
+//
+//        for i := 0; i < len(values); i++ {
+//            v := q.Dequeue()
+//            if got, want := v, values[i]; got != want {
+//                fmt.Fprintf(os.Stderr, "GOT: %v; WANT: %v", got, want)
+//            }
+//        }
+//    }
+type Blocking struct {
+	// head is the sequence number of the goroutine whose turn it is to dequeue.
+	head int64
+
+	// tail is the sequence number of the goroutine which last appended itself
+	// to the queue of goroutines waiting to dequeue a datum value.
+	tail int64
+
+	c *sync.Cond   // c is the condition variable used to synchronize dequeue goroutines.
+	q *NonBlocking // q is the queue of datum values waiting to be dequeued.
+}
+
+const nobody uint64 = 0 // nobody is using the queue
+
+// NewBlocking returns a blocking queue whose dequeue operation blocks until a
+// value is available.
+func NewBlocking() *Blocking {
+	return &Blocking{
+		tail: -1,
+		c:    sync.NewCond(new(sync.Mutex)),
+		q:    new(NonBlocking),
+	}
+}
+
+// Dequeue returns the first datum in the queue, or, when the queue is empty,
+// will block until a datum is available.
+func (b *Blocking) Dequeue() interface{} {
+	id := atomic.AddInt64(&b.tail, 1)
+
+	// Wait for this goroutine's id to show up.
+	b.c.L.Lock()
+	for atomic.LoadInt64(&b.head) != id || b.q.IsEmpty() {
+		b.c.Wait() // unlocks; waits for signal or broadcast; relocks before return
+	}
+
+	// This goroutine's turn to dequeue the next datum value.
+	datum, ok := b.q.Dequeue()
+	if !ok {
+		panic("nothing to dequeue")
+	}
+
+	_ = atomic.AddInt64(&b.head, 1) // pass turn to following dequeue goroutine
+	b.c.L.Unlock()
+	b.c.Broadcast()
+	return datum
+}
+
+// Enqueue appends datum to the tail of the queue. This operation is
+// non-blocking, and can be considered wait-free because it completes in a
+// finite number of steps regardless of any other queue operations.
+func (b *Blocking) Enqueue(datum interface{}) {
+	b.q.Enqueue(datum)
+	b.c.Broadcast()
+}
