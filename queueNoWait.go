@@ -13,7 +13,7 @@ type snode struct {
 	next  *snode
 }
 
-// NonBlocking is a multi-reader, multi-writer, first-in-first-out (FIFO) data
+// QueueNoWait is a multi-reader, multi-writer, first-in-first-out (FIFO) data
 // structure that allows insertion and removal of values safely by multiple
 // goroutines.
 //
@@ -25,7 +25,7 @@ type snode struct {
 //        const oneMillion = 1000000
 //
 //        values := rand.Perm(oneMillion)
-//        q := goqueue.NewNonBlocking()
+//        q := goqueue.NewQueueNoWait()
 //
 //        for _, v := range values {
 //            q.Enqueue(v)
@@ -42,18 +42,20 @@ type snode struct {
 //            }
 //        }
 //    }
-type NonBlocking struct {
+type QueueNoWait struct {
 	head, tail *snode
 }
 
-// NewNonBlocking returns a non-blocking queue.
-func NewNonBlocking() *NonBlocking {
-	return new(NonBlocking)
+// NewQueueNoWait returns a queue whose Dequeue method will immediately return
+// regardless of whether the Queue has any items in it.
+func NewQueueNoWait() *QueueNoWait {
+	return new(QueueNoWait)
 }
 
 // Dequeue extracts and returns the first value at the head of the list. This
-// function does not block. When there are no values in the queue, the second
-// return value will be false to indicate an empty queue.
+// function returns immediately even when the Queue is empty. When there are no
+// values in the queue, the second return value will be false to indicate an
+// empty queue.
 //
 // This dequeue implementation can be considered lock-free and may spin. At best
 // this algorithm performs four simple atomic operations and completes without
@@ -63,7 +65,7 @@ func NewNonBlocking() *NonBlocking {
 // goroutine trying to dequeue may cause this dequeue process to need to execute
 // another round of the same four atomic operations before it is able to remove
 // the head node from the queue.
-func (q *NonBlocking) Dequeue() (interface{}, bool) {
+func (q *QueueNoWait) Dequeue() (interface{}, bool) {
 	// q.showHeadAndTail("Dequeue PRE")
 
 	head := (*snode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head))))
@@ -132,7 +134,7 @@ func (q *NonBlocking) Dequeue() (interface{}, bool) {
 // algorithm at various levels of concurrency reveal the overall system
 // performance improves significantly with this approach rather than the
 // lock-free approach.
-func (q *NonBlocking) Enqueue(datum interface{}) {
+func (q *QueueNoWait) Enqueue(datum interface{}) {
 	if false {
 		q.enqueueLessFast(datum)
 		return
@@ -161,7 +163,7 @@ func (q *NonBlocking) Enqueue(datum interface{}) {
 
 // enqueueLessFast appends datum to the tail of the queue. This version of
 // enqueue is not as performant.
-func (q *NonBlocking) enqueueLessFast(datum interface{}) {
+func (q *QueueNoWait) enqueueLessFast(datum interface{}) {
 	// q.showHeadAndTail("Enqueue PRE")
 	n := &snode{datum: datum}
 
@@ -204,11 +206,11 @@ func (q *NonBlocking) enqueueLessFast(datum interface{}) {
 }
 
 // IsEmpty returns true when the queue is empty and false otherwise.
-func (q *NonBlocking) IsEmpty() bool {
+func (q *QueueNoWait) IsEmpty() bool {
 	// q.showHeadAndTail("IsEmpty")
 	return (*snode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)))) == nil
 }
 
-func (q *NonBlocking) showHeadAndTail(op string) {
+func (q *QueueNoWait) showHeadAndTail(op string) {
 	fmt.Fprintf(os.Stderr, "nonblocking %s:\n\thead: %v\n\ttail: %v\n", op, (*snode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)))), (*snode)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&q.tail)))))
 }

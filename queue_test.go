@@ -10,7 +10,7 @@ import (
 )
 
 func TestBlockingEnqueuesThenDequeues(t *testing.T) {
-	q := NewBlocking()
+	q := NewQueue()
 
 	t.Run("enqueues", func(t *testing.T) {
 		q.Enqueue(11)
@@ -42,7 +42,7 @@ func TestBlockingEnqueuesThenDequeues(t *testing.T) {
 
 func TestBlockingInterleaved(t *testing.T) {
 	// t.Skip()
-	q := NewBlocking()
+	q := NewQueue()
 
 	var wg sync.WaitGroup
 	wg.Add(3)
@@ -152,9 +152,9 @@ func combinedBlockingParallel(tb testing.TB, init func() blockingQueue) {
 }
 
 func TestBlockingParallel(t *testing.T) {
-	combinedBlockingParallel(t, func() blockingQueue { return NewBlocking() })
+	combinedBlockingParallel(t, func() blockingQueue { return NewQueue() })
 }
 
 func BenchmarkBlockingParallel(b *testing.B) {
-	combinedBlockingParallel(b, func() blockingQueue { return NewBlocking() })
+	combinedBlockingParallel(b, func() blockingQueue { return NewQueue() })
 }

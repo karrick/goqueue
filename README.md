@@ -26,6 +26,8 @@ signal when items are available.
 
 ## Overview [![GoDoc](https://godoc.org/github.com/karrick/goqueue?status.svg)](https://godoc.org/github.com/karrick/goqueue)
 
+### Queue whose Dequeue method waits for an item to be available.
+
 ```Go
 package main
 
@@ -41,7 +43,39 @@ func main() {
 	const oneMillion = 1000000
 
 	values := rand.Perm(oneMillion)
-	q := new(goqueue.Queue)
+	q := goqueue.NewQueue()
+
+	for _, v := range values {
+		q.Enqueue(v)
+	}
+
+	for i := 0; i < len(values); i++ {
+		v := q.Dequeue()
+		if got, want := v, values[i]; got != want {
+			fmt.Fprintf(os.Stderr, "GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+```
+
+### Queue whose Dequeue method does not wait for an item to be available.
+
+```Go
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"os"
+
+	"github.com/karrick/goqueue"
+)
+
+func main() {
+	const oneMillion = 1000000
+
+	values := rand.Perm(oneMillion)
+	q := goqueue.NewQueueNoWait()
 
 	for _, v := range values {
 		q.Enqueue(v)
