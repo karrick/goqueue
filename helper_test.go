@@ -184,6 +184,7 @@ func testNonBlockingInterleaved(t *testing.T, init func() nonBlockingQueue) {
 }
 
 func combinedNonBlockingParallel(tb testing.TB, init func() nonBlockingQueue) {
+	tb.Helper()
 	q := init()
 	ls := new(lockingSlice)
 	concurrency := testConcurrency
