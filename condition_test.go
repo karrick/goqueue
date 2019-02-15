@@ -8,7 +8,7 @@ import (
 )
 
 func producerConsumerChannel(tb testing.TB, consumerCount, producerCount, queueSize, productionSize int) int {
-	var sum int32
+	var sum int64
 
 	ch := make(chan interface{}, queueSize)
 
@@ -21,7 +21,7 @@ func producerConsumerChannel(tb testing.TB, consumerCount, producerCount, queueS
 		go func(i int) {
 			defer consumerGroup.Done()
 			for item := range ch {
-				atomic.AddInt32(&sum, item.(int32)) // do something with item
+				atomic.AddInt64(&sum, item.(int64)) // do something with item
 			}
 		}(i)
 	}
@@ -31,7 +31,7 @@ func producerConsumerChannel(tb testing.TB, consumerCount, producerCount, queueS
 		go func(i int) {
 			defer producerGroup.Done()
 			for item := 0; item < productionSize; item++ {
-				ch <- int32(i*100 + item)
+				ch <- int64(i*100 + item)
 			}
 		}(i)
 	}
@@ -41,25 +41,75 @@ func producerConsumerChannel(tb testing.TB, consumerCount, producerCount, queueS
 	close(ch)
 	consumerGroup.Wait()
 
-	return int(atomic.LoadInt32(&sum))
+	return int(atomic.LoadInt64(&sum))
 }
 
 func TestProducerConsumerChannel(t *testing.T) {
-	if got, want := producerConsumerChannel(t, 3, 3, 10, 10), 3135; got != want {
+	if got, want := producerConsumerChannel(t, lowConsumerCount, lowProducerCount, lowQueueSize, lowProductionSize), lowTotal; got != want {
 		t.Errorf("GOT: %v; WANT: %v", got, want)
 	}
 }
 
-func BenchmarkProducerConsumerChannel(b *testing.B) {
+const (
+	lowConsumerCount  = 3
+	lowProducerCount  = 3
+	lowQueueSize      = 10
+	lowProductionSize = 10
+	lowTotal          = 3135
+
+	mediumConsumerCount  = 10
+	mediumProducerCount  = 10
+	mediumQueueSize      = 10
+	mediumProductionSize = 100
+	mediumTotal          = 499500
+
+	highConsumerCount  = 100
+	highProducerCount  = 100
+	highQueueSize      = 100
+	highProductionSize = 100
+	highTotal          = 49995000
+
+	veryHighConsumerCount  = 1000
+	veryHighProducerCount  = 1000
+	veryHighQueueSize      = 1000
+	veryHighProductionSize = 1000
+	veryHighTotal          = 50449500000
+)
+
+func BenchmarkProducerConsumerLowChannel(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		if got, want := producerConsumerChannel(b, 3, 3, 10, 10), 3135; got != want {
+		if got, want := producerConsumerChannel(b, lowConsumerCount, lowProducerCount, lowQueueSize, lowProductionSize), lowTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerMediumChannel(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerChannel(b, mediumConsumerCount, mediumProducerCount, mediumQueueSize, mediumProductionSize), mediumTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerHighChannel(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerChannel(b, highConsumerCount, highProducerCount, highQueueSize, highProductionSize), highTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerVeryHighChannel(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerChannel(b, veryHighConsumerCount, veryHighProducerCount, veryHighQueueSize, veryHighProductionSize), veryHighTotal; got != want {
 			b.Errorf("GOT: %v; WANT: %v", got, want)
 		}
 	}
 }
 
 func producerConsumerQueue(tb testing.TB, consumerCount, producerCount, queueSize, productionSize int) int {
-	var sum int32
+	var sum int64
 
 	queue, err := newQ3(queueSize)
 	if err != nil {
@@ -79,7 +129,7 @@ func producerConsumerQueue(tb testing.TB, consumerCount, producerCount, queueSiz
 				if !ok {
 					return
 				}
-				atomic.AddInt32(&sum, item.(int32)) // do something with item
+				atomic.AddInt64(&sum, item.(int64)) // do something with item
 			}
 		}(i)
 	}
@@ -89,7 +139,7 @@ func producerConsumerQueue(tb testing.TB, consumerCount, producerCount, queueSiz
 		go func(i int) {
 			defer producerGroup.Done()
 			for item := 0; item < productionSize; item++ {
-				queue.Enqueue(int32(i*100 + item))
+				queue.Enqueue(int64(i*100 + item))
 			}
 		}(i)
 	}
@@ -97,19 +147,42 @@ func producerConsumerQueue(tb testing.TB, consumerCount, producerCount, queueSiz
 	producerGroup.Wait() // wait for producers to complete
 	queue.Close()        // close the queue
 	consumerGroup.Wait() // wait for the consumers to complete
-	return int(atomic.LoadInt32(&sum))
+	return int(atomic.LoadInt64(&sum))
 }
 
 func TestProducerConsumerQueue(t *testing.T) {
-	if got, want := producerConsumerQueue(t, 3, 3, 10, 10), 3135; got != want {
-		// if got, want := producerConsumerQueue(t, 1, 1, 3, 10), 45; got != want {
+	if got, want := producerConsumerQueue(t, lowConsumerCount, lowProducerCount, lowQueueSize, lowProductionSize), lowTotal; got != want {
 		t.Errorf("GOT: %v; WANT: %v", got, want)
 	}
 }
 
-func BenchmarkProducerConsumerQueue(b *testing.B) {
+func BenchmarkProducerConsumerLowQueue(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		if got, want := producerConsumerQueue(b, 3, 3, 10, 10), 3135; got != want {
+		if got, want := producerConsumerQueue(b, lowConsumerCount, lowProducerCount, lowQueueSize, lowProductionSize), lowTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerMediumQueue(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerQueue(b, mediumConsumerCount, mediumProducerCount, mediumQueueSize, mediumProductionSize), mediumTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerHighQueue(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerQueue(b, highConsumerCount, highProducerCount, highQueueSize, highProductionSize), highTotal; got != want {
+			b.Errorf("GOT: %v; WANT: %v", got, want)
+		}
+	}
+}
+
+func BenchmarkProducerConsumerVeryHighQueue(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if got, want := producerConsumerQueue(b, veryHighConsumerCount, veryHighProducerCount, veryHighQueueSize, veryHighProductionSize), veryHighTotal; got != want {
 			b.Errorf("GOT: %v; WANT: %v", got, want)
 		}
 	}
