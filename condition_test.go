@@ -2,7 +2,6 @@ package goqueue
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -116,13 +115,10 @@ func BenchmarkProducerConsumerQueue(b *testing.B) {
 	}
 }
 
-const debugging = true
-
 type q3 struct {
-	items       []interface{}
-	cv          *sync.Cond
-	count, size int
-	closed      bool
+	items []interface{}
+	cv    *sync.Cond
+	size  int // size is set to -1 after the queue is closed
 }
 
 func newQ3(size int) (*q3, error) {
@@ -137,23 +133,20 @@ func newQ3(size int) (*q3, error) {
 	return q, nil
 }
 
-func (q *q3) String() string {
-	if q.closed {
-		return fmt.Sprintf("closed; length: %d; items: %#v", q.count, q.items)
+func (q *q3) GoString() string {
+	if q.size < 0 {
+		return fmt.Sprintf("closed; length: %d; items: %#v", len(q.items), q.items)
 	}
-	return fmt.Sprintf("open; length: %d; items: %#v", q.count, q.items)
+	return fmt.Sprintf("open; length: %d; items: %#v", len(q.items), q.items)
 }
 
 func (q *q3) Close() error {
 	q.cv.L.Lock()
-	if q.closed {
+	if q.size < 0 {
 		q.cv.L.Unlock()
 		panic("close on closed queue")
 	}
-	if debugging {
-		fmt.Fprintf(os.Stderr, "CLOSE: %s\n", q.String())
-	}
-	q.closed = true
+	q.size = -1
 	q.cv.L.Unlock()
 	q.cv.Broadcast() // wake up all consumers so they can exit
 	return nil
@@ -165,29 +158,13 @@ func (q *q3) Close() error {
 // queue is closed, this returns nil as the first argument and false as its
 // second.  This mirrors the behavior of a receive from a nil channel.
 func (q *q3) Dequeue() (interface{}, bool) {
-	if debugging {
-		fmt.Fprintf(os.Stderr, "DEQUEUE: getting lock\n")
-	}
 	q.cv.L.Lock()
-	if debugging {
-		fmt.Fprintf(os.Stderr, "DEQUEUE: have lock\n")
-	}
 
 	// If either the queue is closed or there are items available, then stop
 	// waiting.  By DeMorgan's Theorum, continue to wait while both queue is not
 	// closed and there are no items available.
-	for !q.closed && q.count == 0 {
-		if debugging {
-			fmt.Fprintf(os.Stderr, "DEQUEUE: waiting\n")
-		}
+	for q.size > 0 && len(q.items) == 0 {
 		q.cv.Wait()
-		if debugging {
-			fmt.Fprintf(os.Stderr, "DEQUEUE: done waiting\n")
-		}
-	}
-
-	if debugging {
-		fmt.Fprintf(os.Stderr, "DEQUEUE: %s\n", q.String())
 	}
 
 	// It might be tempting to test whether queue is open right now, but that
@@ -195,23 +172,15 @@ func (q *q3) Dequeue() (interface{}, bool) {
 	// bunch of items onto the queue and immediately closed it.  When there are
 	// items in the queue, return them.  Otherwise if we get here and the queue
 	// is empty, the queue must be closed.
-	if q.count > 0 {
+	if len(q.items) > 0 {
 		var item interface{}
 		item, q.items = q.items[0], q.items[1:]
-		q.count--
-		if debugging {
-			fmt.Fprintf(os.Stderr, "DEQUEUE: returning %T %#v\n", item, item)
-			fmt.Fprintf(os.Stderr, "DEQUEUE: releasing lock\n")
-		}
 		q.cv.L.Unlock() // release our lock, then
 		q.cv.Signal()   // wake up the next go-routine waiting on this lock
 		return item, true
 	}
 
 	// If here, the queue must be closed.
-	if debugging {
-		fmt.Fprintf(os.Stderr, "DEQUEUE: releasing lock\n")
-	}
 	q.cv.L.Unlock() // release our lock, then
 	q.cv.Signal()   // wake up the next go-routine waiting on this lock
 	return nil, false
@@ -222,33 +191,17 @@ func (q *q3) Dequeue() (interface{}, bool) {
 // indicating a bug in the design of the code that uses it.  This mirrors the
 // behavior of a send to a closed channel.
 func (q *q3) Enqueue(item interface{}) {
-	if debugging {
-		fmt.Fprintf(os.Stderr, "ENQUEUE: getting lock\n")
-	}
 	q.cv.L.Lock()
-	if debugging {
-		fmt.Fprintf(os.Stderr, "ENQUEUE: have lock\n")
-	}
 	for {
-		if q.closed {
+		if q.size < 0 {
 			panic("enqueue on closed queue")
 		}
-		if q.count < q.size {
+		if len(q.items) < q.size {
 			q.items = append(q.items, item)
-			q.count++
-			if debugging {
-				fmt.Fprintf(os.Stderr, "ENQUEUE: %s\n", q.String())
-			}
 			q.cv.L.Unlock() // release our lock, then
 			q.cv.Signal()   // wake up the next go-routine waiting on this lock
 			return
 		}
-		if debugging {
-			fmt.Fprintf(os.Stderr, "ENQUEUE: waiting\n")
-		}
 		q.cv.Wait()
-		if debugging {
-			fmt.Fprintf(os.Stderr, "ENQUEUE: done waiting\n")
-		}
 	}
 }
