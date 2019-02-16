@@ -53,7 +53,7 @@ func TestProducerConsumerChannel(t *testing.T) {
 const (
 	lowConsumerCount  = 3
 	lowProducerCount  = 3
-	lowQueueSize      = 10
+	lowQueueSize      = 5
 	lowProductionSize = 10
 	lowTotal          = 3135
 
@@ -191,7 +191,7 @@ func BenchmarkProducerConsumerVeryHighQueue(b *testing.B) {
 type q3 struct {
 	items []interface{}
 	cv    *sync.Cond
-	size  int // size is set to -1 after the queue is closed
+	max   int // size is set to -1 after the queue is closed
 }
 
 func newQ3(size int) (*q3, error) {
@@ -201,13 +201,13 @@ func newQ3(size int) (*q3, error) {
 	q := &q3{
 		items: make([]interface{}, 0, size),
 		cv:    &sync.Cond{L: new(sync.Mutex)},
-		size:  size,
+		max:   size,
 	}
 	return q, nil
 }
 
 func (q *q3) GoString() string {
-	if q.size < 0 {
+	if q.max < 0 {
 		return fmt.Sprintf("closed; length: %d; items: %#v", len(q.items), q.items)
 	}
 	return fmt.Sprintf("open; length: %d; items: %#v", len(q.items), q.items)
@@ -215,11 +215,11 @@ func (q *q3) GoString() string {
 
 func (q *q3) Close() error {
 	q.cv.L.Lock()
-	if q.size < 0 {
+	if q.max < 0 {
 		q.cv.L.Unlock()
 		panic("close on closed queue")
 	}
-	q.size = -1
+	q.max = -1
 	q.cv.L.Unlock()
 	q.cv.Broadcast() // wake up all consumers so they can exit
 	return nil
@@ -236,7 +236,7 @@ func (q *q3) Dequeue() (interface{}, bool) {
 	// If either the queue is closed or there are items available, then stop
 	// waiting.  By DeMorgan's Theorum, continue to wait while both queue is not
 	// closed and there are no items available.
-	for q.size > 0 && len(q.items) == 0 {
+	for q.max > 0 && len(q.items) == 0 {
 		q.cv.Wait()
 	}
 
@@ -266,10 +266,10 @@ func (q *q3) Dequeue() (interface{}, bool) {
 func (q *q3) Enqueue(item interface{}) {
 	q.cv.L.Lock()
 	for {
-		if q.size < 0 {
+		if q.max < 0 {
 			panic("enqueue on closed queue")
 		}
-		if len(q.items) < q.size {
+		if len(q.items) < q.max {
 			q.items = append(q.items, item)
 			q.cv.L.Unlock() // release our lock, then
 			q.cv.Signal()   // wake up the next go-routine waiting on this lock
